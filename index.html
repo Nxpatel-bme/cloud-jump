@@ -1,1 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cloud Jump</title>
+  <meta name="description" content="Jump from cloud to cloud and climb as high as you can!" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">☁️ Cloud Jump</div>
+    <div class="stats">
+      <div>Score: <span id="score">0</span></div>
+      <div>Best: <span id="best">0</span></div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <canvas id="game" width="420" height="700"></canvas>
+
+      <div class="help">
+        <div><b>Controls:</b> ← → or A/D</div>
+        <div><b>Restart:</b> R</div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Made by you • Tip: try adding coins, power-ups, and different clouds!
+  </footer>
+
+  <script src="./game.js"></script>
+</body>
+</html>
 
