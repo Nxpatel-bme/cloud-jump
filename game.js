@@ -87,68 +87,69 @@ function makePlatform(y, nearX = null, forceNormal = false) {
 }
 
 function reset() {
-  const startY = H - 140;
+  const startPlatform = {
+    x: W * 0.5 - 140,
+    y: H - 60,
+    w: 280,
+    type: "normal",
+  };
+
+  const playerStartY = startPlatform.y - PLAYER_H;
 
   state = {
     time: 0,
     cameraY: 0,
-    startY,
-    highestY: startY,
+    startY: playerStartY,
+    highestY: playerStartY,
     score: 0,
     gameOver: false,
     player: {
       x: W * 0.5 - PLAYER_W * 0.5,
-      y: startY,
+      y: playerStartY,
       vx: 0,
-      vy: JUMP_VELOCITY * 1.08,
+      vy: JUMP_VELOCITY * 1.12,
     },
     platforms: [],
     clouds: [],
   };
 
   // Starting platform
-  state.platforms.push({
-    x: W * 0.5 - 140,
-    y: H - 60,
-    w: 280,
-    type: "normal",
-  });
+  state.platforms.push(startPlatform);
 
-  // Easier first few platforms so the opening is fair
-  let y = H - 60;
-  let prevX = W * 0.5 - 60;
+  // Guaranteed easy opening platforms
+  const openingPlatforms = [
+    {
+      x: W * 0.5 - 55,
+      y: startPlatform.y - 72,
+      w: 110,
+      type: "normal",
+    },
+    {
+      x: W * 0.5 + 35,
+      y: startPlatform.y - 138,
+      w: 105,
+      type: "normal",
+    },
+    {
+      x: W * 0.5 - 125,
+      y: startPlatform.y - 202,
+      w: 110,
+      type: "normal",
+    },
+  ];
 
-  for (let i = 0; i < 12; i++) {
-    let gap;
+  for (const plat of openingPlatforms) {
+    state.platforms.push(plat);
+  }
 
-    if (i === 0) {
-      gap = rand(36, 48); // first cloud: very reachable
-    } else if (i === 1) {
-      gap = rand(40, 54); // second cloud: still easy
-    } else if (i < 4) {
-      gap = rand(48, 68); // early game: forgiving
-    } else {
-      gap = rand(PLATFORM_GAP_MIN, PLATFORM_GAP_MAX); // normal difficulty
-    }
+  // Fill the rest above the easy opening
+  let topY = openingPlatforms[openingPlatforms.length - 1].y;
+  let prevX = openingPlatforms[openingPlatforms.length - 1].x;
 
-    y -= gap;
-
-    let plat;
-    if (i < 4) {
-      const w = rand(95, 135);
-      const x = clamp(prevX + rand(-60, 60), 10, W - w - 10);
-      plat = {
-        x,
-        y,
-        w,
-        type: "normal",
-      };
-      prevX = x;
-    } else {
-      plat = makePlatform(y, prevX);
-      prevX = plat.x;
-    }
-
+  while (state.platforms.length < 13) {
+    topY -= rand(PLATFORM_GAP_MIN, PLATFORM_GAP_MAX);
+    const plat = makePlatform(topY, prevX);
+    prevX = plat.x;
     state.platforms.push(plat);
   }
 
@@ -186,11 +187,9 @@ function update(dt) {
   p.x += p.vx * step;
   p.y += p.vy * step;
 
-  // Wrap horizontally
   if (p.x < -PLAYER_W) p.x = W;
   if (p.x > W) p.x = -PLAYER_W;
 
-  // Platform landing
   if (p.vy > 0) {
     for (const plat of state.platforms) {
       const px1 = p.x;
@@ -213,30 +212,24 @@ function update(dt) {
     }
   }
 
-  // Camera follows upward only
   const screenY = p.y - state.cameraY;
   if (screenY < CAMERA_DEADZONE) {
-    const diff = CAMERA_DEADZONE - screenY;
-    state.cameraY -= diff;
+    state.cameraY -= CAMERA_DEADZONE - screenY;
   }
 
-  // Score based on upward progress from start
   state.highestY = Math.min(state.highestY, p.y);
   const climbed = state.startY - state.highestY;
   state.score = Math.max(0, Math.floor(climbed / 10));
   scoreEl.textContent = String(state.score);
 
-   if (state.score > best) {
+  if (state.score > best) {
     best = state.score;
     bestEl.textContent = String(best);
     try {
       localStorage.setItem(BEST_KEY, String(best));
-    } catch (e) {
-      // ignore storage issues
-    }
+    } catch (e) {}
   }
 
-  // Recycle platforms that fall below the camera
   let topMostY = Infinity;
   let topMostX = W * 0.5;
 
@@ -260,7 +253,6 @@ function update(dt) {
     }
   }
 
-  // Background clouds
   for (const c of state.clouds) {
     c.y += c.s * step;
     const cyScreen = c.y - state.cameraY;
@@ -273,7 +265,6 @@ function update(dt) {
     }
   }
 
-  // Game over if player falls too far below screen
   const playerScreenY = p.y - state.cameraY;
   if (playerScreenY > H + FALL_MARGIN) {
     state.gameOver = true;
@@ -285,7 +276,6 @@ function update(dt) {
 function draw() {
   ctx.clearRect(0, 0, W, H);
 
-  // Sun glow
   ctx.save();
   ctx.globalAlpha = 0.35;
   ctx.beginPath();
@@ -294,12 +284,10 @@ function draw() {
   ctx.fill();
   ctx.restore();
 
-  // Background clouds
   for (const c of state.clouds) {
     drawPuff(c.x, c.y - state.cameraY, c.r);
   }
 
-  // Platforms
   for (const plat of state.platforms) {
     const y = plat.y - state.cameraY;
     if (y < -40 || y > H + 40) continue;
@@ -324,7 +312,6 @@ function draw() {
     }
   }
 
-  // Player
   const p = state.player;
   const px = p.x;
   const py = p.y - state.cameraY;
@@ -413,7 +400,6 @@ function cloudRect(x, y, w, h) {
   ctx.restore();
 }
 
-// Start loop
 reset();
 
 let last = performance.now();
@@ -421,10 +407,8 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min(32, now - last);
   last = now;
-
   update(dt);
   draw();
-
   requestAnimationFrame(loop);
 }
 
