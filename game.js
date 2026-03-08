@@ -100,7 +100,7 @@ function reset() {
       x: W * 0.5 - PLAYER_W * 0.5,
       y: startY,
       vx: 0,
-      vy: JUMP_VELOCITY,
+      vy: JUMP_VELOCITY * 1.08,
     },
     platforms: [],
     clouds: [],
@@ -115,16 +115,28 @@ function reset() {
   });
 
   // Easier first few platforms so the opening is fair
-  let y = H - 140;
+  let y = H - 60;
   let prevX = W * 0.5 - 60;
 
   for (let i = 0; i < 12; i++) {
-    y -= rand(PLATFORM_GAP_MIN, PLATFORM_GAP_MAX);
+    let gap;
+
+    if (i === 0) {
+      gap = rand(36, 48); // first cloud: very reachable
+    } else if (i === 1) {
+      gap = rand(40, 54); // second cloud: still easy
+    } else if (i < 4) {
+      gap = rand(48, 68); // early game: forgiving
+    } else {
+      gap = rand(PLATFORM_GAP_MIN, PLATFORM_GAP_MAX); // normal difficulty
+    }
+
+    y -= gap;
 
     let plat;
-    if (i < 3) {
-      const w = rand(90, 130);
-      const x = clamp(prevX + rand(-70, 70), 10, W - w - 10);
+    if (i < 4) {
+      const w = rand(95, 135);
+      const x = clamp(prevX + rand(-60, 60), 10, W - w - 10);
       plat = {
         x,
         y,
@@ -214,7 +226,7 @@ function update(dt) {
   state.score = Math.max(0, Math.floor(climbed / 10));
   scoreEl.textContent = String(state.score);
 
-  if (state.score > best) {
+   if (state.score > best) {
     best = state.score;
     bestEl.textContent = String(best);
     try {
@@ -417,4 +429,3 @@ function loop(now) {
 }
 
 requestAnimationFrame(loop);
-
