@@ -1,4 +1,4 @@
-// Cloud Jump - improved platformer website version
+// Cloud Jump - randomized opening + coins
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -31,6 +31,9 @@ const PLATFORM_GAP_MAX = 95;
 
 const CAMERA_DEADZONE = H * 0.45;
 const FALL_MARGIN = 120;
+
+const COIN_R = 9;
+const COIN_SCORE = 15;
 
 let best = 0;
 try {
@@ -75,7 +78,7 @@ function makePlatform(y, nearX = null, forceNormal = false) {
   if (nearX === null) {
     x = rand(10, W - w - 10);
   } else {
-    x = clamp(nearX + rand(-85, 85), 10, W - w - 10);
+    x = clamp(nearX + rand(-95, 95), 10, W - w - 10);
   }
 
   return {
@@ -83,6 +86,18 @@ function makePlatform(y, nearX = null, forceNormal = false) {
     y,
     w,
     type: forceNormal ? "normal" : Math.random() < 0.12 ? "bouncy" : "normal",
+  };
+}
+
+function maybeSpawnCoin(plat, guaranteed = false) {
+  if (!guaranteed && Math.random() > 0.32) return null;
+
+  return {
+    x: plat.x + plat.w / 2,
+    y: plat.y - 22,
+    r: COIN_R,
+    taken: false,
+    bob: rand(0, Math.PI * 2),
   };
 }
 
@@ -102,49 +117,40 @@ function reset() {
     startY: playerStartY,
     highestY: playerStartY,
     score: 0,
+    coinScore: 0,
     gameOver: false,
     player: {
       x: W * 0.5 - PLAYER_W * 0.5,
       y: playerStartY,
       vx: 0,
-      vy: JUMP_VELOCITY * 1.12,
+      vy: JUMP_VELOCITY * 1.08,
     },
     platforms: [],
     clouds: [],
+    coins: [],
   };
 
-  // Starting platform
   state.platforms.push(startPlatform);
 
-  // Guaranteed easy opening platforms
-  const openingPlatforms = [
-    {
-      x: W * 0.5 - 55,
-      y: startPlatform.y - 72,
-      w: 110,
-      type: "normal",
-    },
-    {
-      x: W * 0.5 + 35,
-      y: startPlatform.y - 138,
-      w: 105,
-      type: "normal",
-    },
-    {
-      x: W * 0.5 - 125,
-      y: startPlatform.y - 202,
-      w: 110,
-      type: "normal",
-    },
-  ];
+  // Two fair opening platforms, but not identical every run
+  const firstPlat = {
+    x: clamp(W * 0.5 + rand(-55, 25), 10, W - 115),
+    y: startPlatform.y - rand(52, 62),
+    w: rand(100, 118),
+    type: "normal",
+  };
 
-  for (const plat of openingPlatforms) {
-    state.platforms.push(plat);
-  }
+  const secondPlat = {
+    x: clamp(firstPlat.x + rand(-85, 85), 10, W - 110),
+    y: firstPlat.y - rand(52, 66),
+    w: rand(96, 116),
+    type: "normal",
+  };
 
-  // Fill the rest above the easy opening
-  let topY = openingPlatforms[openingPlatforms.length - 1].y;
-  let prevX = openingPlatforms[openingPlatforms.length - 1].x;
+  state.platforms.push(firstPlat, secondPlat);
+
+  let topY = secondPlat.y;
+  let prevX = secondPlat.x;
 
   while (state.platforms.length < 13) {
     topY -= rand(PLATFORM_GAP_MIN, PLATFORM_GAP_MAX);
@@ -153,6 +159,14 @@ function reset() {
     state.platforms.push(plat);
   }
 
+  // Coins
+  for (let i = 1; i < state.platforms.length; i++) {
+    const guaranteed = i === 1;
+    const coin = maybeSpawnCoin(state.platforms[i], guaranteed);
+    if (coin) state.coins.push(coin);
+  }
+
+  // Background clouds
   for (let i = 0; i < 10; i++) {
     state.clouds.push({
       x: rand(0, W),
@@ -217,9 +231,31 @@ function update(dt) {
     state.cameraY -= CAMERA_DEADZONE - screenY;
   }
 
+  // Coins
+  for (const coin of state.coins) {
+    if (coin.taken) continue;
+
+    coin.bob += 0.08 * step;
+    const drawY = coin.y + Math.sin(coin.bob) * 3;
+
+    const playerCenterX = p.x + PLAYER_W / 2;
+    const playerCenterY = p.y + PLAYER_H / 2;
+
+    const dx = playerCenterX - coin.x;
+    const dy = playerCenterY - drawY;
+    const hitDist = PLAYER_W * 0.45 + coin.r;
+
+    if (dx * dx + dy * dy < hitDist * hitDist) {
+      coin.taken = true;
+      state.coinScore += COIN_SCORE;
+    }
+  }
+
   state.highestY = Math.min(state.highestY, p.y);
   const climbed = state.startY - state.highestY;
-  state.score = Math.max(0, Math.floor(climbed / 10));
+  const heightScore = Math.max(0, Math.floor(climbed / 10));
+  state.score = heightScore + state.coinScore;
+
   scoreEl.textContent = String(state.score);
 
   if (state.score > best) {
@@ -250,6 +286,15 @@ function update(dt) {
       plat.w = np.w;
       plat.type = np.type;
       topMostX = np.x;
+
+      const oldCoin = state.coins.find((c) => c.platform === plat);
+      if (oldCoin) oldCoin.taken = true;
+
+      const coin = maybeSpawnCoin(plat, false);
+      if (coin) {
+        coin.platform = plat;
+        state.coins.push(coin);
+      }
     }
   }
 
@@ -271,6 +316,26 @@ function update(dt) {
   }
 
   state.time += dt;
+}
+
+function drawCoin(x, y, r) {
+  ctx.save();
+
+  ctx.fillStyle = "#ffd54a";
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#f4b400";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath();
+  ctx.arc(x - 2, y - 2, r * 0.35, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
 }
 
 function draw() {
@@ -310,6 +375,13 @@ function draw() {
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  for (const coin of state.coins) {
+    if (coin.taken) continue;
+    const drawY = coin.y + Math.sin(coin.bob) * 3 - state.cameraY;
+    if (drawY < -30 || drawY > H + 30) continue;
+    drawCoin(coin.x, drawY, coin.r);
   }
 
   const p = state.player;
