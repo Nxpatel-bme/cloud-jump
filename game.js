@@ -8,133 +8,67 @@
   />
   <title>Cloud Jump</title>
   <style>
-    :root {
-      --ui-bg: rgba(255, 255, 255, 0.78);
-      --ui-border: rgba(255, 255, 255, 0.55);
-      --text: #17324a;
-    }
-
-    * {
-      box-sizing: border-box;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    html,
-    body {
+    html, body {
       margin: 0;
+      padding: 0;
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: linear-gradient(#8fd8ff 0%, #dff7ff 100%);
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(#8fd8ff, #eafaff);
       touch-action: none;
+      font-family: system-ui, -apple-system, sans-serif;
     }
 
-    body {
-      display: grid;
-      place-items: center;
-      padding:
-        env(safe-area-inset-top)
-        env(safe-area-inset-right)
-        env(safe-area-inset-bottom)
-        env(safe-area-inset-left);
-    }
-
-    .wrap {
-      position: relative;
-      width: min(100vw, 460px);
-      height: 100vh;
-      max-height: 100vh;
-      display: flex;
-      align-items: stretch;
-      justify-content: center;
-    }
-
-    canvas {
+    #game {
       display: block;
-      width: 100%;
-      height: 100%;
+      width: 100vw;
+      height: 100vh;
       touch-action: none;
     }
 
-    .hud {
-      position: absolute;
-      top: max(10px, env(safe-area-inset-top));
-      left: 10px;
-      right: 10px;
+    #hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      right: 12px;
       display: flex;
-      gap: 8px;
       justify-content: space-between;
-      pointer-events: none;
       z-index: 10;
+      pointer-events: none;
+      color: #17324a;
+      font-weight: 700;
+      font-size: 16px;
     }
 
     .pill {
-      background: var(--ui-bg);
-      border: 1px solid var(--ui-border);
-      color: var(--text);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      border-radius: 999px;
+      background: rgba(255,255,255,0.8);
       padding: 8px 12px;
-      font-weight: 700;
-      font-size: 14px;
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
-      white-space: nowrap;
-    }
-
-    .touchHint {
-      position: absolute;
-      bottom: max(12px, env(safe-area-inset-bottom));
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 10;
-      background: rgba(255,255,255,0.7);
-      border: 1px solid rgba(255,255,255,0.45);
       border-radius: 999px;
-      padding: 8px 12px;
-      font-size: 12px;
-      font-weight: 700;
-      color: #244761;
-      pointer-events: none;
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-      .touchHint {
-        display: none;
-      }
     }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <canvas id="game"></canvas>
-
-    <div class="hud">
-      <div class="pill">Score: <span id="score">0</span></div>
-      <div class="pill">Best: <span id="best">0</span></div>
-    </div>
-
-    <div class="touchHint">Touch left / right side to move</div>
+  <div id="hud">
+    <div class="pill">Score: <span id="score">0</span></div>
+    <div class="pill">Best: <span id="best">0</span></div>
   </div>
+
+  <canvas id="game"></canvas>
 
   <script>
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
-
     const scoreEl = document.getElementById("score");
     const bestEl = document.getElementById("best");
 
     const BEST_KEY = "cloudJumpBest";
 
-    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-    const rand = (a, b) => a + Math.random() * (b - a);
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+    function rand(a, b) { return a + Math.random() * (b - a); }
 
     let W = 390;
-    let H = 844;
-    let dpr = 1;
+    let H = 700;
+    let DPR = 1;
 
     const GRAVITY = 0.4;
     const JUMP_VELOCITY = -10.1;
@@ -153,20 +87,17 @@
     const PLATFORM_GAP_MAX = 108;
 
     const FALL_MARGIN = 120;
-
     const COIN_R = 10;
     const COIN_SCORE = 10;
     const COIN_CHANCE = 0.28;
-
     const MOVING_PLATFORM_CHANCE = 0.18;
     const BREAKING_PLATFORM_CHANCE = 0.16;
 
-    let CAMERA_DEADZONE = H * 0.45;
+    let CAMERA_DEADZONE = 300;
 
-    const keys = new Set();
+    const keys = {};
     let touchLeft = false;
     let touchRight = false;
-    let pointerActive = false;
 
     let best = 0;
     try {
@@ -176,121 +107,79 @@
     }
     bestEl.textContent = String(best);
 
-    let state;
+    let state = null;
 
     function resizeGame() {
-      const rect = canvas.parentElement.getBoundingClientRect();
-      const cssW = Math.max(320, Math.min(rect.width, 460));
-      const cssH = Math.max(560, window.innerHeight);
-
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-      canvas.style.width = cssW + "px";
-      canvas.style.height = cssH + "px";
-
-      canvas.width = Math.floor(cssW * dpr);
-      canvas.height = Math.floor(cssH * dpr);
-
-      W = cssW;
-      H = cssH;
+      DPR = Math.min(window.devicePixelRatio || 1, 2);
+      W = window.innerWidth;
+      H = window.innerHeight;
       CAMERA_DEADZONE = H * 0.45;
 
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      canvas.width = Math.floor(W * DPR);
+      canvas.height = Math.floor(H * DPR);
+      canvas.style.width = W + "px";
+      canvas.style.height = H + "px";
+
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     }
 
-    function updateTouchFromClientX(clientX) {
-      const rect = canvas.getBoundingClientRect();
-      const x = clientX - rect.left;
-      touchLeft = x < rect.width / 2;
-      touchRight = x >= rect.width / 2;
-    }
+    window.addEventListener("resize", resizeGame);
 
-    window.addEventListener("keydown", (e) => {
-      const key = e.key.toLowerCase();
-      if (["arrowleft", "arrowright", "arrowup", "arrowdown", " "].includes(key)) {
+    window.addEventListener("keydown", function (e) {
+      const k = e.key.toLowerCase();
+      keys[k] = true;
+      if (["arrowleft", "arrowright", "arrowup", "arrowdown", " "].indexOf(k) !== -1) {
         e.preventDefault();
       }
-      keys.add(key);
-      if (key === "r" && state?.gameOver) reset();
+      if (k === "r" && state && state.gameOver) reset();
     });
 
-    window.addEventListener("keyup", (e) => {
-      keys.delete(e.key.toLowerCase());
+    window.addEventListener("keyup", function (e) {
+      keys[e.key.toLowerCase()] = false;
     });
 
-    canvas.addEventListener(
-      "pointerdown",
-      (e) => {
-        if (e.pointerType !== "mouse" || e.buttons === 1) {
-          e.preventDefault();
-        }
-
-        if (state?.gameOver) {
-          reset();
-          return;
-        }
-
-        if (e.pointerType === "touch" || e.pointerType === "pen") {
-          pointerActive = true;
-          updateTouchFromClientX(e.clientX);
-        }
-      },
-      { passive: false }
-    );
-
-    canvas.addEventListener(
-      "pointermove",
-      (e) => {
-        if (!pointerActive) return;
-        if (e.pointerType === "touch" || e.pointerType === "pen") {
-          e.preventDefault();
-          updateTouchFromClientX(e.clientX);
-        }
-      },
-      { passive: false }
-    );
-
-    function clearTouchInput() {
-      pointerActive = false;
-      touchLeft = false;
-      touchRight = false;
+    function handleTouch(clientX) {
+      const x = clientX;
+      touchLeft = x < W / 2;
+      touchRight = x >= W / 2;
     }
 
-    canvas.addEventListener(
-      "pointerup",
-      (e) => {
-        if (e.pointerType === "touch" || e.pointerType === "pen") {
-          e.preventDefault();
-          clearTouchInput();
-        }
-      },
-      { passive: false }
-    );
+    canvas.addEventListener("touchstart", function (e) {
+      e.preventDefault();
+      if (state && state.gameOver) {
+        reset();
+        return;
+      }
+      if (e.touches.length > 0) {
+        handleTouch(e.touches[0].clientX);
+      }
+    }, { passive: false });
 
-    canvas.addEventListener(
-      "pointercancel",
-      (e) => {
-        if (e.pointerType === "touch" || e.pointerType === "pen") {
-          e.preventDefault();
-          clearTouchInput();
-        }
-      },
-      { passive: false }
-    );
+    canvas.addEventListener("touchmove", function (e) {
+      e.preventDefault();
+      if (e.touches.length > 0) {
+        handleTouch(e.touches[0].clientX);
+      }
+    }, { passive: false });
 
-    function makeCoinForPlatform(platform, force = false) {
+    canvas.addEventListener("touchend", function (e) {
+      e.preventDefault();
+      touchLeft = false;
+      touchRight = false;
+    }, { passive: false });
+
+    function makeCoinForPlatform(platform, force) {
       if (!force && Math.random() > COIN_CHANCE) return null;
-
       return {
         x: platform.x + platform.w / 2,
         y: platform.y - 24,
         r: COIN_R,
         taken: false,
-        bob: rand(0, Math.PI * 2),
+        bob: rand(0, Math.PI * 2)
       };
     }
 
-    function assignPlatformBehavior(platform, forceNormal = false) {
+    function assignPlatformBehavior(platform, forceNormal) {
       if (forceNormal) {
         platform.type = "normal";
         platform.moveSpeed = 0;
@@ -319,7 +208,8 @@
       }
     }
 
-    function makePlatform(y, nearX = null, forceNormal = false) {
+    function makePlatform(y, nearX, forceNormal) {
+      if (nearX == null) nearX = null;
       const w = rand(PLATFORM_MIN_W, PLATFORM_MAX_W);
 
       let x;
@@ -330,17 +220,17 @@
       }
 
       const platform = {
-        x,
-        y,
-        w,
+        x: x,
+        y: y,
+        w: w,
         type: "normal",
         coin: null,
         moveSpeed: 0,
         moveDir: 1,
-        breakState: "idle",
+        breakState: "idle"
       };
 
-      assignPlatformBehavior(platform, forceNormal);
+      assignPlatformBehavior(platform, !!forceNormal);
       platform.coin = makeCoinForPlatform(platform, false);
       return platform;
     }
@@ -356,7 +246,7 @@
         coin: null,
         moveSpeed: 0,
         moveDir: 1,
-        breakState: "idle",
+        breakState: "idle"
       };
 
       const playerStartY = startPlatform.y - PLAYER_H;
@@ -369,7 +259,7 @@
         coin: null,
         moveSpeed: 0,
         moveDir: 1,
-        breakState: "idle",
+        breakState: "idle"
       };
       firstPlat.coin = makeCoinForPlatform(firstPlat, true);
 
@@ -381,7 +271,7 @@
         coin: null,
         moveSpeed: 0,
         moveDir: 1,
-        breakState: "idle",
+        breakState: "idle"
       };
       secondPlat.coin = makeCoinForPlatform(secondPlat, true);
 
@@ -398,10 +288,10 @@
           x: W * 0.5 - PLAYER_W * 0.5,
           y: playerStartY,
           vx: 0,
-          vy: JUMP_VELOCITY * 1.03,
+          vy: JUMP_VELOCITY * 1.03
         },
         platforms: [startPlatform, firstPlat, secondPlat],
-        clouds: [],
+        clouds: []
       };
 
       let topY = secondPlat.y;
@@ -409,7 +299,7 @@
 
       while (state.platforms.length < 13) {
         topY -= rand(PLATFORM_GAP_MIN, PLATFORM_GAP_MAX);
-        const plat = makePlatform(topY, prevX);
+        const plat = makePlatform(topY, prevX, false);
         prevX = plat.x;
         state.platforms.push(plat);
       }
@@ -419,12 +309,13 @@
           x: rand(0, W),
           y: rand(-H, H),
           r: rand(18, 42),
-          s: rand(0.15, 0.35),
+          s: rand(0.15, 0.35)
         });
       }
 
       scoreEl.textContent = "0";
-      clearTouchInput();
+      touchLeft = false;
+      touchRight = false;
     }
 
     function update(dt) {
@@ -433,15 +324,14 @@
       const step = dt / 16.6667;
       const p = state.player;
 
-      const left = keys.has("arrowleft") || keys.has("a") || touchLeft;
-      const right = keys.has("arrowright") || keys.has("d") || touchRight;
+      const left = keys["arrowleft"] || keys["a"] || touchLeft;
+      const right = keys["arrowright"] || keys["d"] || touchRight;
 
       if (left) p.vx -= MOVE_ACCEL * step;
       if (right) p.vx += MOVE_ACCEL * step;
 
       p.vx *= Math.pow(MOVE_FRICTION, step);
       p.vx = clamp(p.vx, -MAX_HSPEED, MAX_HSPEED);
-
       p.vy += GRAVITY * step;
 
       const prevY = p.y;
@@ -488,23 +378,20 @@
           const pyBottomPrev = prevY + PLAYER_H;
           const pyBottom = p.y + PLAYER_H;
 
-          const platTop = plat.y;
-          const platLeft = plat.x;
-          const platRight = plat.x + plat.w;
-
-          const crossedTop = pyBottomPrev <= platTop && pyBottom >= platTop;
-          const withinX = px2 > platLeft && px1 < platRight;
+          const crossedTop = pyBottomPrev <= plat.y && pyBottom >= plat.y;
+          const withinX = px2 > plat.x && px1 < plat.x + plat.w;
 
           if (crossedTop && withinX) {
+            p.y = plat.y - PLAYER_H;
+
             if (plat.type === "breaking") {
-              p.y = platTop - PLAYER_H;
               p.vy = JUMP_VELOCITY;
               plat.breakState = "breaking";
-              break;
+            } else if (plat.type === "bouncy") {
+              p.vy = JUMP_VELOCITY * 1.25;
+            } else {
+              p.vy = JUMP_VELOCITY;
             }
-
-            p.y = platTop - PLAYER_H;
-            p.vy = plat.type === "bouncy" ? JUMP_VELOCITY * 1.25 : JUMP_VELOCITY;
 
             if (plat.type === "moving") {
               p.x += plat.moveSpeed * plat.moveDir * step * 1.2;
@@ -516,11 +403,7 @@
       }
 
       for (const plat of state.platforms) {
-        if (
-          plat.type === "breaking" &&
-          plat.breakState === "breaking" &&
-          plat.y - state.cameraY > H + 80
-        ) {
+        if (plat.type === "breaking" && plat.breakState === "breaking" && plat.y - state.cameraY > H + 80) {
           plat.breakState = "gone";
         }
       }
@@ -536,11 +419,8 @@
         plat.coin.bob += 0.08 * step;
         const coinY = plat.coin.y + Math.sin(plat.coin.bob) * 3;
 
-        const playerCenterX = p.x + PLAYER_W / 2;
-        const playerCenterY = p.y + PLAYER_H / 2;
-
-        const dx = playerCenterX - plat.coin.x;
-        const dy = playerCenterY - coinY;
+        const dx = (p.x + PLAYER_W / 2) - plat.coin.x;
+        const dy = (p.y + PLAYER_H / 2) - coinY;
 
         if (dx * dx + dy * dy < 16 * 16) {
           plat.coin.taken = true;
@@ -579,8 +459,7 @@
       for (const plat of state.platforms) {
         if (plat.y > camBottom + 100 || (plat.type === "breaking" && plat.breakState === "gone")) {
           topMostY -= rand(PLATFORM_GAP_MIN, PLATFORM_GAP_MAX);
-
-          const np = makePlatform(topMostY, topMostX);
+          const np = makePlatform(topMostY, topMostX, false);
 
           plat.x = np.x;
           plat.y = np.y;
@@ -597,9 +476,7 @@
 
       for (const c of state.clouds) {
         c.y += c.s * step;
-
-        const cyScreen = c.y - state.cameraY;
-        if (cyScreen > H + 80) {
+        if (c.y - state.cameraY > H + 80) {
           c.y = state.cameraY - rand(60, 300);
           c.x = rand(0, W);
           c.r = rand(18, 42);
@@ -607,8 +484,7 @@
         }
       }
 
-      const playerScreenY = p.y - state.cameraY;
-      if (playerScreenY > H + FALL_MARGIN) {
+      if (p.y - state.cameraY > H + FALL_MARGIN) {
         state.gameOver = true;
       }
 
@@ -630,7 +506,6 @@
       ctx.save();
       ctx.globalAlpha = 0.9;
       ctx.fillStyle = "rgba(255,255,255,0.9)";
-
       ctx.beginPath();
       ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
       ctx.arc(x + r * 0.45, y + r * 0.1, r * 0.5, 0, Math.PI * 2);
@@ -642,31 +517,22 @@
 
     function cloudRect(x, y, w, h) {
       ctx.save();
-
       roundRect(x, y, w, h, 10);
       ctx.fill();
 
       ctx.globalAlpha = 0.95;
       ctx.beginPath();
-
-      const left1 = x + Math.min(18, w * 0.18);
-      const left2 = x + Math.min(38, w * 0.34);
-      const center = x + w * 0.5;
-      const right2 = x + w - Math.min(44, w * 0.34);
-      const right1 = x + w - Math.min(22, w * 0.18);
-
-      ctx.arc(left1, y + 8, 12, 0, Math.PI * 2);
-      ctx.arc(left2, y + 6, 14, 0, Math.PI * 2);
-      ctx.arc(center, y + 7, 12, 0, Math.PI * 2);
-      ctx.arc(right2, y + 6, 14, 0, Math.PI * 2);
-      ctx.arc(right1, y + 8, 12, 0, Math.PI * 2);
+      ctx.arc(x + Math.min(18, w * 0.18), y + 8, 12, 0, Math.PI * 2);
+      ctx.arc(x + Math.min(38, w * 0.34), y + 6, 14, 0, Math.PI * 2);
+      ctx.arc(x + w * 0.5, y + 7, 12, 0, Math.PI * 2);
+      ctx.arc(x + w - Math.min(44, w * 0.34), y + 6, 14, 0, Math.PI * 2);
+      ctx.arc(x + w - Math.min(22, w * 0.18), y + 8, 12, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.globalAlpha = 0.35;
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#fff";
       roundRect(x + 10, y + 3, Math.max(20, w - 20), 6, 6);
       ctx.fill();
-
       ctx.restore();
     }
 
@@ -689,19 +555,21 @@
     }
 
     function draw() {
+      if (!state) return;
+
       ctx.clearRect(0, 0, W, H);
 
       const sky = ctx.createLinearGradient(0, 0, 0, H);
       sky.addColorStop(0, "#8fd8ff");
-      sky.addColorStop(1, "#e6f9ff");
+      sky.addColorStop(1, "#eafaff");
       ctx.fillStyle = sky;
       ctx.fillRect(0, 0, W, H);
 
       ctx.save();
       ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "#fff8b0";
       ctx.beginPath();
       ctx.arc(70, 80, 55, 0, Math.PI * 2);
-      ctx.fillStyle = "#fff8b0";
       ctx.fill();
       ctx.restore();
 
@@ -720,55 +588,18 @@
         ctx.fill();
         ctx.restore();
 
-        if (plat.type === "bouncy") {
-          ctx.fillStyle = "#E9F7FF";
-        } else if (plat.type === "moving") {
-          ctx.fillStyle = "#FFF4D6";
-        } else if (plat.type === "breaking") {
-          ctx.fillStyle = "#FFE0E0";
-        } else {
-          ctx.fillStyle = "#FFFFFF";
-        }
+        if (plat.type === "bouncy") ctx.fillStyle = "#E9F7FF";
+        else if (plat.type === "moving") ctx.fillStyle = "#FFF4D6";
+        else if (plat.type === "breaking") ctx.fillStyle = "#FFE0E0";
+        else ctx.fillStyle = "#FFFFFF";
 
         cloudRect(plat.x, y, plat.w, PLATFORM_H);
-
-        if (plat.type === "bouncy") {
-          ctx.save();
-          ctx.globalAlpha = 0.7;
-          ctx.fillStyle = "#BEEBFF";
-          roundRect(plat.x + 10, y + 5, Math.max(18, plat.w - 20), 5, 6);
-          ctx.fill();
-          ctx.restore();
-        }
-
-        if (plat.type === "moving") {
-          ctx.save();
-          ctx.globalAlpha = 0.8;
-          ctx.fillStyle = "#E7C66A";
-          roundRect(plat.x + 12, y + 5, Math.max(16, plat.w - 24), 4, 6);
-          ctx.fill();
-          ctx.restore();
-        }
-
-        if (plat.type === "breaking") {
-          ctx.save();
-          ctx.strokeStyle = "#D98C8C";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(plat.x + 18, y + 3);
-          ctx.lineTo(plat.x + plat.w / 2, y + PLATFORM_H - 2);
-          ctx.lineTo(plat.x + plat.w - 18, y + 4);
-          ctx.stroke();
-          ctx.restore();
-        }
       }
 
       for (const plat of state.platforms) {
         if (!plat.coin || plat.coin.taken) continue;
-
         const drawY = plat.coin.y + Math.sin(plat.coin.bob) * 3 - state.cameraY;
         if (drawY < -30 || drawY > H + 30) continue;
-
         drawCoin(plat.coin.x, drawY, plat.coin.r);
       }
 
@@ -776,7 +607,6 @@
       const px = p.x;
       const py = p.y - state.cameraY;
 
-      ctx.save();
       ctx.fillStyle = "#1f2a44";
       roundRect(px, py, PLAYER_W, PLAYER_H, 8);
       ctx.fill();
@@ -794,11 +624,10 @@
       ctx.fillStyle = "#ff4d6d";
       roundRect(px + 4, py + 20, PLAYER_W - 8, 6, 3);
       ctx.fill();
-      ctx.restore();
 
       ctx.fillStyle = "rgba(0,0,0,0.58)";
       ctx.font = "700 16px system-ui";
-      ctx.fillText("Coins: " + state.coinsCollected, 14, 62);
+      ctx.fillText("Coins: " + state.coinsCollected, 14, 64);
 
       if (state.gameOver) {
         ctx.save();
@@ -807,20 +636,12 @@
 
         ctx.fillStyle = "#fff";
         ctx.textAlign = "center";
-
-        ctx.font = "700 42px system-ui";
-        ctx.fillText("Game Over", W / 2, H / 2 - 34);
+        ctx.font = "700 40px system-ui";
+        ctx.fillText("Game Over", W / 2, H / 2 - 30);
 
         ctx.font = "600 18px system-ui";
-        ctx.fillText(`Score: ${state.score}  •  Best: ${best}`, W / 2, H / 2 + 8);
-        ctx.fillText(`Coins: ${state.coinsCollected}`, W / 2, H / 2 + 36);
-
-        const restartText =
-          ("ontouchstart" in window || navigator.maxTouchPoints > 0)
-            ? "Tap to restart"
-            : "Press R to restart";
-
-        ctx.fillText(restartText, W / 2, H / 2 + 66);
+        ctx.fillText("Score: " + state.score + "  Best: " + best, W / 2, H / 2 + 10);
+        ctx.fillText("Tap to restart", W / 2, H / 2 + 42);
         ctx.restore();
       }
     }
@@ -833,34 +654,10 @@
     function loop(now) {
       const dt = Math.min(32, now - last);
       last = now;
-
       update(dt);
       draw();
-
       requestAnimationFrame(loop);
     }
-
-    window.addEventListener("resize", () => {
-      const oldW = W;
-      resizeGame();
-
-      if (state) {
-        const scaleX = W / oldW;
-        state.player.x *= scaleX;
-
-        for (const plat of state.platforms) {
-          plat.x *= scaleX;
-          plat.w = clamp(plat.w, PLATFORM_MIN_W, PLATFORM_MAX_W);
-          if (plat.coin && !plat.coin.taken) {
-            plat.coin.x = plat.x + plat.w / 2;
-          }
-        }
-
-        for (const c of state.clouds) {
-          c.x *= scaleX;
-        }
-      }
-    });
 
     requestAnimationFrame(loop);
   </script>
