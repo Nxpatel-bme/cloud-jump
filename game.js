@@ -1,17 +1,19 @@
-// Cloud Jump - harder version with coins, moving clouds, and breaking clouds
-
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-
 const scoreEl = document.getElementById("score");
 const bestEl = document.getElementById("best");
+
+if (!canvas || !ctx || !scoreEl || !bestEl) {
+  throw new Error("Missing #game, #score, or #best in the HTML.");
+}
+
 const BEST_KEY = "cloudJumpBest";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rand = (a, b) => a + Math.random() * (b - a);
 
-const W = canvas.width;
-const H = canvas.height;
+let W = canvas.width;
+let H = canvas.height;
 
 const GRAVITY = 0.4;
 const JUMP_VELOCITY = -10.1;
@@ -29,7 +31,6 @@ const PLATFORM_H = 16;
 const PLATFORM_GAP_MIN = 62;
 const PLATFORM_GAP_MAX = 108;
 
-const CAMERA_DEADZONE = H * 0.45;
 const FALL_MARGIN = 120;
 
 const COIN_R = 10;
@@ -38,6 +39,8 @@ const COIN_CHANCE = 0.28;
 
 const MOVING_PLATFORM_CHANCE = 0.18;
 const BREAKING_PLATFORM_CHANCE = 0.16;
+
+let CAMERA_DEADZONE = H * 0.45;
 
 let best = 0;
 try {
@@ -48,21 +51,42 @@ try {
 bestEl.textContent = String(best);
 
 const keys = new Set();
+let state = null;
+
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  const cssW = Math.max(640, Math.floor(rect.width));
+  const cssH = Math.max(480, Math.floor(rect.height));
+
+  canvas.width = Math.floor(cssW * dpr);
+  canvas.height = Math.floor(cssH * dpr);
+
+  W = cssW;
+  H = cssH;
+  CAMERA_DEADZONE = H * 0.45;
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
 
 window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
+
   if (["arrowleft", "arrowright", "arrowup", "arrowdown", " "].includes(key)) {
     e.preventDefault();
   }
+
   keys.add(key);
-  if (key === "r" && state.gameOver) reset();
+
+  if (key === "r" && state && state.gameOver) {
+    reset();
+  }
 });
 
 window.addEventListener("keyup", (e) => {
   keys.delete(e.key.toLowerCase());
 });
-
-let state;
 
 function makeCoinForPlatform(platform, force = false) {
   if (!force && Math.random() > COIN_CHANCE) return null;
@@ -112,7 +136,7 @@ function makePlatform(y, nearX = null, forceNormal = false) {
   if (nearX === null) {
     x = rand(10, W - w - 10);
   } else {
-    x = clamp(nearX + rand(-95, 95), 10, W - w - 10);
+    x = clamp(nearX + rand(-110, 110), 10, W - w - 10);
   }
 
   const platform = {
@@ -127,15 +151,18 @@ function makePlatform(y, nearX = null, forceNormal = false) {
   };
 
   assignPlatformBehavior(platform, forceNormal);
-  platform.coin = makeCoinForPlatform(platform, false);
+  platform.coin = makeCoinForPlatform(platform);
   return platform;
 }
 
 function reset() {
+  resizeCanvas();
+
+  const startWidth = Math.min(280, W * 0.3);
   const startPlatform = {
-    x: W * 0.5 - 140,
+    x: W * 0.5 - startWidth / 2,
     y: H - 60,
-    w: 280,
+    w: startWidth,
     type: "normal",
     coin: null,
     moveSpeed: 0,
@@ -146,7 +173,7 @@ function reset() {
   const playerStartY = startPlatform.y - PLAYER_H;
 
   const firstPlat = {
-    x: clamp(W * 0.5 + rand(-55, 25), 10, W - 115),
+    x: clamp(W * 0.5 + rand(-60, 30), 10, W - 115),
     y: startPlatform.y - rand(56, 66),
     w: rand(92, 108),
     type: "normal",
@@ -191,14 +218,14 @@ function reset() {
   let topY = secondPlat.y;
   let prevX = secondPlat.x;
 
-  while (state.platforms.length < 13) {
+  while (state.platforms.length < 15) {
     topY -= rand(PLATFORM_GAP_MIN, PLATFORM_GAP_MAX);
     const plat = makePlatform(topY, prevX);
     prevX = plat.x;
     state.platforms.push(plat);
   }
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 12; i++) {
     state.clouds.push({
       x: rand(0, W),
       y: rand(-H, H),
@@ -211,7 +238,7 @@ function reset() {
 }
 
 function update(dt) {
-  if (state.gameOver) return;
+  if (!state || state.gameOver) return;
 
   const step = dt / 16.6667;
   const p = state.player;
@@ -224,13 +251,10 @@ function update(dt) {
 
   p.vx *= Math.pow(MOVE_FRICTION, step);
   p.vx = clamp(p.vx, -MAX_HSPEED, MAX_HSPEED);
-
   p.vy += GRAVITY * step;
 
   const prevY = p.y;
-  const prevX = p.x;
 
-  // Move special platforms
   for (const plat of state.platforms) {
     if (plat.type === "moving") {
       plat.x += plat.moveSpeed * plat.moveDir * step;
@@ -273,41 +297,34 @@ function update(dt) {
       const pyBottomPrev = prevY + PLAYER_H;
       const pyBottom = p.y + PLAYER_H;
 
-      const platTop = plat.y;
-      const platLeft = plat.x;
-      const platRight = plat.x + plat.w;
-
-      const crossedTop = pyBottomPrev <= platTop && pyBottom >= platTop;
-      const withinX = px2 > platLeft && px1 < platRight;
+      const crossedTop = pyBottomPrev <= plat.y && pyBottom >= plat.y;
+      const withinX = px2 > plat.x && px1 < plat.x + plat.w;
 
       if (crossedTop && withinX) {
         if (plat.type === "breaking") {
-          p.y = platTop - PLAYER_H;
+          p.y = plat.y - PLAYER_H;
           p.vy = JUMP_VELOCITY;
           plat.breakState = "breaking";
           break;
         }
 
-        p.y = platTop - PLAYER_H;
-
-        if (plat.type === "bouncy") {
-          p.vy = JUMP_VELOCITY * 1.25;
-        } else {
-          p.vy = JUMP_VELOCITY;
-        }
+        p.y = plat.y - PLAYER_H;
+        p.vy = plat.type === "bouncy" ? JUMP_VELOCITY * 1.25 : JUMP_VELOCITY;
 
         if (plat.type === "moving") {
           p.x += plat.moveSpeed * plat.moveDir * step * 1.2;
         }
-
         break;
       }
     }
   }
 
-  // Cleanup broken platforms that have fallen away
   for (const plat of state.platforms) {
-    if (plat.type === "breaking" && plat.breakState === "breaking" && plat.y - state.cameraY > H + 80) {
+    if (
+      plat.type === "breaking" &&
+      plat.breakState === "breaking" &&
+      plat.y - state.cameraY > H + 80
+    ) {
       plat.breakState = "gone";
     }
   }
@@ -323,11 +340,8 @@ function update(dt) {
     plat.coin.bob += 0.08 * step;
     const coinY = plat.coin.y + Math.sin(plat.coin.bob) * 3;
 
-    const playerCenterX = p.x + PLAYER_W / 2;
-    const playerCenterY = p.y + PLAYER_H / 2;
-
-    const dx = playerCenterX - plat.coin.x;
-    const dy = playerCenterY - coinY;
+    const dx = p.x + PLAYER_W / 2 - plat.coin.x;
+    const dy = p.y + PLAYER_H / 2 - coinY;
 
     if (dx * dx + dy * dy < 16 * 16) {
       plat.coin.taken = true;
@@ -385,8 +399,7 @@ function update(dt) {
   for (const c of state.clouds) {
     c.y += c.s * step;
 
-    const cyScreen = c.y - state.cameraY;
-    if (cyScreen > H + 80) {
+    if (c.y - state.cameraY > H + 80) {
       c.y = state.cameraY - rand(60, 300);
       c.x = rand(0, W);
       c.r = rand(18, 42);
@@ -394,12 +407,60 @@ function update(dt) {
     }
   }
 
-  const playerScreenY = p.y - state.cameraY;
-  if (playerScreenY > H + FALL_MARGIN) {
+  if (p.y - state.cameraY > H + FALL_MARGIN) {
     state.gameOver = true;
   }
 
   state.time += dt;
+}
+
+function roundRect(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawPuff(x, y, r) {
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
+  ctx.arc(x + r * 0.45, y + r * 0.1, r * 0.5, 0, Math.PI * 2);
+  ctx.arc(x - r * 0.45, y + r * 0.1, r * 0.48, 0, Math.PI * 2);
+  ctx.arc(x + r * 0.15, y - r * 0.25, r * 0.45, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function cloudRect(x, y, w, h) {
+  ctx.save();
+
+  roundRect(x, y, w, h, 10);
+  ctx.fill();
+
+  ctx.globalAlpha = 0.95;
+  ctx.beginPath();
+  ctx.arc(x + Math.min(18, w * 0.18), y + 8, 12, 0, Math.PI * 2);
+  ctx.arc(x + Math.min(38, w * 0.34), y + 6, 14, 0, Math.PI * 2);
+  ctx.arc(x + w * 0.5, y + 7, 12, 0, Math.PI * 2);
+  ctx.arc(x + w - Math.min(44, w * 0.34), y + 6, 14, 0, Math.PI * 2);
+  ctx.arc(x + w - Math.min(22, w * 0.18), y + 8, 12, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = "#ffffff";
+  roundRect(x + 10, y + 3, Math.max(20, w - 20), 6, 6);
+  ctx.fill();
+
+  ctx.restore();
 }
 
 function drawCoin(x, y, r) {
@@ -422,16 +483,27 @@ function drawCoin(x, y, r) {
   ctx.restore();
 }
 
-function draw() {
-  ctx.clearRect(0, 0, W, H);
+function drawBackground() {
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, "#86d4fb");
+  sky.addColorStop(1, "#dff7ff");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
 
   ctx.save();
-  ctx.globalAlpha = 0.35;
+  ctx.globalAlpha = 0.28;
+  ctx.fillStyle = "#fff4ae";
   ctx.beginPath();
-  ctx.arc(70, 80, 55, 0, Math.PI * 2);
-  ctx.fillStyle = "#fff8b0";
+  ctx.arc(Math.min(130, W * 0.13), 120, 85, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+}
+
+function draw() {
+  if (!state) return;
+
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
 
   for (const c of state.clouds) {
     drawPuff(c.x, c.y - state.cameraY, c.r);
@@ -464,7 +536,7 @@ function draw() {
       ctx.save();
       ctx.globalAlpha = 0.7;
       ctx.fillStyle = "#BEEBFF";
-      roundRect(plat.x + 10, y + 5, plat.w - 20, 5, 6);
+      roundRect(plat.x + 10, y + 5, Math.max(18, plat.w - 20), 5, 6);
       ctx.fill();
       ctx.restore();
     }
@@ -473,7 +545,7 @@ function draw() {
       ctx.save();
       ctx.globalAlpha = 0.8;
       ctx.fillStyle = "#E7C66A";
-      roundRect(plat.x + 12, y + 5, plat.w - 24, 4, 6);
+      roundRect(plat.x + 12, y + 5, Math.max(16, plat.w - 24), 4, 6);
       ctx.fill();
       ctx.restore();
     }
@@ -524,9 +596,9 @@ function draw() {
   ctx.fill();
   ctx.restore();
 
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.font = "700 16px system-ui";
-  ctx.fillText("Coins: " + state.coinsCollected, 12, 28);
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.font = "700 18px system-ui";
+  ctx.fillText("Coins: " + state.coinsCollected, 16, 32);
 
   if (state.gameOver) {
     ctx.save();
@@ -548,55 +620,6 @@ function draw() {
   }
 }
 
-function roundRect(x, y, w, h, r) {
-  r = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-function drawPuff(x, y, r) {
-  ctx.save();
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-
-  ctx.beginPath();
-  ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
-  ctx.arc(x + r * 0.45, y + r * 0.1, r * 0.5, 0, Math.PI * 2);
-  ctx.arc(x - r * 0.45, y + r * 0.1, r * 0.48, 0, Math.PI * 2);
-  ctx.arc(x + r * 0.15, y - r * 0.25, r * 0.45, 0, Math.PI * 2);
-
-  ctx.fill();
-  ctx.restore();
-}
-
-function cloudRect(x, y, w, h) {
-  ctx.save();
-
-  roundRect(x, y, w, h, 10);
-  ctx.fill();
-
-  ctx.globalAlpha = 0.95;
-  ctx.beginPath();
-  ctx.arc(x + 18, y + 8, 12, 0, Math.PI * 2);
-  ctx.arc(x + 38, y + 6, 14, 0, Math.PI * 2);
-  ctx.arc(x + 60, y + 8, 12, 0, Math.PI * 2);
-  ctx.arc(x + w - 22, y + 8, 12, 0, Math.PI * 2);
-  ctx.arc(x + w - 44, y + 6, 14, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.globalAlpha = 0.35;
-  ctx.fillStyle = "#ffffff";
-  roundRect(x + 10, y + 3, w - 20, 6, 6);
-  ctx.fill();
-
-  ctx.restore();
-}
-
 reset();
 
 let last = performance.now();
@@ -610,5 +633,9 @@ function loop(now) {
 
   requestAnimationFrame(loop);
 }
+
+window.addEventListener("resize", () => {
+  reset();
+});
 
 requestAnimationFrame(loop);
